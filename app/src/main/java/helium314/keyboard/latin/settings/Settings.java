@@ -588,11 +588,6 @@ public final class Settings implements SharedPreferences.OnSharedPreferenceChang
             try {
                 sCachedEmojiTypeface = Typeface.createFromFile(getCustomEmojiFontFile(mContext));
             } catch (Exception ignored) { }
-            if (sCachedEmojiTypeface == null) {
-                try {
-                    sCachedEmojiTypeface = Typeface.createFromAsset(mContext.getAssets(), "fonts/Twemoji.ttf");
-                } catch (Exception ignored) { }
-            }
         }
         sCustomEmojiTypefaceLoaded = true;
         return sCachedEmojiTypeface;

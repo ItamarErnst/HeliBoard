@@ -102,7 +102,9 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
 
     // Parameters for pointer handling.
     private static PointerTrackerParams sParams;
-    private static final int sPointerStep = KtxKt.dpToPx(10, Resources.getSystem());
+    private static final int sPointerStep = KtxKt.dpToPx(5, Resources.getSystem());
+    // larger threshold for vertical cursor movement so line jumps require decisive motion (touchpad feel)
+    private static final int sPointerStepCursorVertical = KtxKt.dpToPx(20, Resources.getSystem());
     private static GestureStrokeRecognitionParams sGestureStrokeRecognitionParams;
     private static GestureStrokeDrawingParams sGestureStrokeDrawingParams;
 
@@ -938,16 +940,20 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
             // when both axes are continuous actions, allow simultaneous diagonal movement;
             // otherwise keep the axis mutex so a diagonal drag can't trigger two different one-shots
             final boolean bothContinuous = !oneShotSwipe(sv.mSpaceSwipeVertical) && !oneShotSwipe(sv.mSpaceSwipeHorizontal);
+            // use a larger step for vertical cursor movement so line jumps feel intentional, not jittery
+            final int vStep = sv.mSpaceSwipeVertical == KeyboardActionListener.SWIPE_MOVE_CURSOR
+                    ? sPointerStepCursorVertical
+                    : sPointerStep;
 
             // Vertical movement
-            int stepsY = dY / sPointerStep;
+            int stepsY = dY / vStep;
             if (stepsY != 0 && (bothContinuous || (abs(dX) < abs(dY) && !mInHorizontalSwipe))) {
                 if (!mInVerticalSwipe) {
                     sTimerProxy.cancelKeyTimersOf(this);
                     mInVerticalSwipe = true;
                 } else if (oneShotSwipe(sv.mSpaceSwipeVertical)) return;
                 if (sListener.onVerticalSpaceSwipe(stepsY)) {
-                    mStartY += stepsY * sPointerStep;
+                    mStartY += stepsY * vStep;
                 }
                 if (!bothContinuous) return;
             }

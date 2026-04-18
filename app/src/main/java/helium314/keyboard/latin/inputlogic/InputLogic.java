@@ -124,6 +124,18 @@ public final class InputLogic {
 
     private boolean mJustRevertedACommit = false;
 
+    // set while the user is dragging the space-bar cursor; suppresses per-step suggestion/auto-caps
+    // recompute so the keyboard doesn't thrash — one final recompute is triggered on release
+    private boolean mIsInSpaceCursorDrag = false;
+
+    public void setInSpaceCursorDrag(final boolean inDrag) {
+        mIsInSpaceCursorDrag = inDrag;
+    }
+
+    public boolean isInSpaceCursorDrag() {
+        return mIsInSpaceCursorDrag;
+    }
+
     /**
      * Create a new instance of the input logic.
      * @param latinIME the instance of the parent LatinIME. We should remove this when we can.
@@ -362,6 +374,12 @@ public final class InputLogic {
     public boolean onUpdateSelection(final int oldSelStart, final int oldSelEnd, final int newSelStart,
              final int newSelEnd, final int composingSpanStart, final int composingSpanEnd, final SettingsValues settingsValues) {
         if (mConnection.isBelatedExpectedUpdate(oldSelStart, newSelStart, oldSelEnd, newSelEnd, composingSpanStart, composingSpanEnd)) {
+            return false;
+        }
+        if (mIsInSpaceCursorDrag) {
+            // only keep the connection's cursor cache in sync; skip the expensive recompute path.
+            // KeyboardActionListenerImpl.onEndSpaceSwipe will trigger one final recompute on release.
+            mConnection.resetCachesUponCursorMoveAndReturnSuccess(newSelStart, newSelEnd, false);
             return false;
         }
         // TODO: the following is probably better done in resetEntireInputState().

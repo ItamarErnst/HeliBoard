@@ -395,7 +395,7 @@ class EmojiSearchActivity : ComponentActivity() {
             val locale = RichInputMethodManager.getInstance().currentSubtype.locale
             if (dictionaryFacilitator?.isForLocale(locale) != true) {
                 dictionaryFacilitator?.closeDictionaries()
-                dictionaryFacilitator = DictionaryInfoUtils.getCachedDictForLocaleAndType(locale, Dictionary.TYPE_EMOJI, context)
+                dictionaryFacilitator = DictionaryInfoUtils.getDictFileForLocaleAndType(locale, Dictionary.TYPE_EMOJI, context)
                     ?.let { DictionaryFactory.getDictionary(it, locale) }?.let { SingleDictionaryFacilitator(it) }
             }
         }

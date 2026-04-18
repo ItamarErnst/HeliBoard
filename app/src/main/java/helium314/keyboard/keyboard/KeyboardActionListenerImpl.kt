@@ -46,6 +46,10 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     private var initialSubtype: InputMethodSubtype? = null
     private var subtypeSwitchCount = 0
 
+    // set by [positiveMoveSteps]/[negativeMoveSteps] when a line boundary (`\n`) is reached so the
+    // caller can absorb the finger motion without falling back to arrow keys, which would cross lines
+    private var lastMoveClampedAtLineBoundary = false
+
     override fun onPressKey(primaryCode: Int, repeatCount: Int, isSinglePointer: Boolean, hapticEvent: HapticEvent) {
         metaOnPressKey(primaryCode)
         keyboardSwitcher.onPressKey(primaryCode, isSinglePointer, latinIME.currentAutoCapsState, latinIME.currentRecapitalizeState)
@@ -166,6 +170,12 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     override fun onEndSpaceSwipe(){
         initialSubtype = null
         subtypeSwitchCount = 0
+        if (inputLogic.isInSpaceCursorDrag) {
+            inputLogic.setInSpaceCursorDrag(false)
+            // one final recompute after suppressing per-step updates during the drag
+            latinIME.mHandler.postResumeSuggestions(false)
+            keyboardSwitcher.requestUpdatingShiftState(latinIME.currentAutoCapsState, latinIME.currentRecapitalizeState)
+        }
     }
 
     override fun toggleNumpad(withSliding: Boolean, forceReturnToAlpha: Boolean): Boolean {
@@ -242,27 +252,39 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
 
     private fun onMoveCursorVertically(steps: Int): Boolean {
         if (steps == 0) return false
-        val code = if (steps < 0) {
+        // clamp at document top/bottom: a single-line field (no newlines) or being on the first/last
+        // line would otherwise send ARROW_UP/DOWN which on many hosts moves focus out of the editor,
+        // making the cursor appear to disappear.
+        val code: Int
+        if (steps < 0) {
+            val textBefore = connection.getTextBeforeCursor(4096, 0)
+            if (textBefore == null || textBefore.indexOf('\n') < 0) return false
+            code = KeyCode.ARROW_UP
             gestureMoveBackHaptics()
-            KeyCode.ARROW_UP
         } else {
+            val textAfter = connection.getTextAfterCursor(4096, 0)
+            if (textAfter == null || textAfter.indexOf('\n') < 0) return false
+            code = KeyCode.ARROW_DOWN
             gestureMoveForwardHaptics()
-            KeyCode.ARROW_DOWN
         }
+        inputLogic.setInSpaceCursorDrag(true)
         onCodeInput(code, Constants.NOT_A_COORDINATE, Constants.NOT_A_COORDINATE, false)
         return true
     }
 
     private fun onMoveCursorHorizontally(rawSteps: Int): Boolean {
         if (rawSteps == 0) return false
+        inputLogic.setInSpaceCursorDrag(true)
         // for RTL languages we want to invert pointer movement
         val rtl = RichInputMethodManager.getInstance().currentSubtype.isRtlSubtype
         val steps = if (rtl) -rawSteps else rawSteps
         val moveSteps: Int
+        lastMoveClampedAtLineBoundary = false
         if (steps < 0) {
             val text = connection.getTextBeforeCursor(-steps * 4, 0) ?: return false
             moveSteps = negativeMoveSteps(text, steps)
             if (moveSteps == 0) {
+                if (lastMoveClampedAtLineBoundary) return true // at line start, absorb motion (don't cross lines)
                 // some apps don't return any text via input connection, and the cursor can't be moved
                 // we fall back to virtually pressing the left/right key one or more times instead
                 repeat(-steps) {
@@ -279,6 +301,7 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
             val text = connection.getTextAfterCursor(steps * 4, 0) ?: return false
             moveSteps = positiveMoveSteps(text, steps)
             if (moveSteps == 0) {
+                if (lastMoveClampedAtLineBoundary) return true // at line end, absorb motion (don't cross lines)
                 // some apps don't return any text via input connection, and the cursor can't be moved
                 // we fall back to virtually pressing the left/right key one or more times instead
                 repeat(steps) {
@@ -321,6 +344,11 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
         var actualSteps = 0
         // corrected steps to avoid splitting chars belonging to the same codepoint
         loopOverCodePoints(text) { cp, charCount ->
+            // clamp at end-of-line — cursor must not cross the newline
+            if (cp == '\n'.code) {
+                lastMoveClampedAtLineBoundary = true
+                return@loopOverCodePoints true
+            }
             // For emojis we (incorrectly) return 0 so the move is handled by virtual arrow key presses.
             // This is a simple workaround to avoid determining the correct character count, which can
             // be tricky because in some cases older Android versions show two emojis where newer ones show one.
@@ -335,6 +363,11 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
         var actualSteps = 0
         // corrected steps to avoid splitting chars belonging to the same codepoint
         loopOverCodePointsBackwards(text) { cp, charCount ->
+            // clamp at start-of-line — cursor must not cross the newline
+            if (cp == '\n'.code) {
+                lastMoveClampedAtLineBoundary = true
+                return@loopOverCodePointsBackwards true
+            }
             // For emojis we (incorrectly) return 0 so the move is handled by virtual arrow key presses.
             // This is a simple workaround to avoid determining the correct character count, which can
             // be tricky because in some cases older Android versions show two emojis where newer ones show one.

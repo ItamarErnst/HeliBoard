@@ -10,6 +10,7 @@ import android.text.TextUtils
 import com.android.inputmethod.latin.utils.BinaryDictionaryUtils
 import helium314.keyboard.latin.dictionary.Dictionary
 import helium314.keyboard.latin.common.FileUtils
+import helium314.keyboard.latin.common.LocaleUtils
 import helium314.keyboard.latin.common.LocaleUtils.constructLocale
 import helium314.keyboard.latin.common.loopOverCodePoints
 import helium314.keyboard.latin.define.DecoderSpecificConstants
@@ -104,13 +105,37 @@ object DictionaryInfoUtils {
     }
 
     @JvmStatic
-    fun getLocalesWithEmojiDicts(context: Context): List<Locale> =
-        SubtypeSettings.getEnabledSubtypes(true)
-            .map { it.locale() }.filter { getCachedDictForLocaleAndType(it, Dictionary.TYPE_EMOJI, context) != null }
+    fun getLocalesWithEmojiDicts(context: Context): List<Locale> {
+        val assetEmojiLocales = getAssetsDictionaryList(context).orEmpty()
+            .filter { it.startsWith("${Dictionary.TYPE_EMOJI}_") }
+            .mapNotNull { runCatching { extractLocaleFromAssetsDictionaryFile(it) }.getOrNull() }
+        return SubtypeSettings.getEnabledSubtypes(true)
+            .map { it.locale() }
+            .filter { locale ->
+                getCachedDictForLocaleAndType(locale, Dictionary.TYPE_EMOJI, context) != null
+                    || assetEmojiLocales.any { LocaleUtils.getMatchLevel(locale, it) >= LocaleUtils.LOCALE_GOOD_MATCH }
+            }
+    }
 
     @JvmStatic
     fun getCachedDictForLocaleAndType(locale: Locale, type: String, context: Context): File? =
         getCachedDictsForLocale(locale, context).firstOrNull { it.name.substringBefore("_") == type }
+
+    /**
+     * Like [getCachedDictForLocaleAndType] but falls back to extracting a matching bundled asset
+     * dictionary into the cache on first access. Lets features that need a dict file work on a
+     * fresh install without waiting for main-keyboard usage to trigger extraction.
+     */
+    @JvmStatic
+    fun getDictFileForLocaleAndType(locale: Locale, type: String, context: Context): File? {
+        getCachedDictForLocaleAndType(locale, type, context)?.let { return it }
+        val assetList = getAssetsDictionaryList(context) ?: return null
+        val matching = assetList.filter { it.startsWith("${type}_") }
+        val bestMatch = LocaleUtils.getBestMatch(locale, matching) {
+            extractLocaleFromAssetsDictionaryFile(it)
+        } ?: return null
+        return extractAssetsDictionary(bestMatch, locale, context)
+    }
 
     fun getCachedDictsForLocale(locale: Locale, context: Context) =
         getCacheDirectoryForLocale(locale, context)?.let { File(it).listFiles() }.orEmpty()
