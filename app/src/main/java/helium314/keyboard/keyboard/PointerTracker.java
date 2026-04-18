@@ -935,10 +935,13 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
         if (code == Constants.CODE_SPACE) {
             int dX = x - mStartX;
             int dY = y - mStartY;
+            // when both axes are continuous actions, allow simultaneous diagonal movement;
+            // otherwise keep the axis mutex so a diagonal drag can't trigger two different one-shots
+            final boolean bothContinuous = !oneShotSwipe(sv.mSpaceSwipeVertical) && !oneShotSwipe(sv.mSpaceSwipeHorizontal);
 
             // Vertical movement
             int stepsY = dY / sPointerStep;
-            if (stepsY != 0 && abs(dX) < abs(dY) && !mInHorizontalSwipe) {
+            if (stepsY != 0 && (bothContinuous || (abs(dX) < abs(dY) && !mInHorizontalSwipe))) {
                 if (!mInVerticalSwipe) {
                     sTimerProxy.cancelKeyTimersOf(this);
                     mInVerticalSwipe = true;
@@ -946,12 +949,12 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
                 if (sListener.onVerticalSpaceSwipe(stepsY)) {
                     mStartY += stepsY * sPointerStep;
                 }
-                return;
+                if (!bothContinuous) return;
             }
 
             // Horizontal movement
             int stepsX = dX / sPointerStep;
-            if (stepsX != 0 && !mInVerticalSwipe) {
+            if (stepsX != 0 && (bothContinuous || !mInVerticalSwipe)) {
                 if (!mInHorizontalSwipe) {
                     sTimerProxy.cancelKeyTimersOf(this);
                     mInHorizontalSwipe = true;
