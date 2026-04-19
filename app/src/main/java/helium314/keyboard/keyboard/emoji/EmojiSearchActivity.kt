@@ -14,10 +14,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -44,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -125,6 +129,7 @@ class EmojiSearchActivity : ComponentActivity() {
     private var pressedKey: Key? = null
     private var imeVisible = false
     private var imeClosed = false
+    private val queuedEmojis = mutableStateListOf<String>()
 
     private val closer = Runnable {
         if (!imeVisible) {
@@ -182,6 +187,15 @@ class EmojiSearchActivity : ComponentActivity() {
                         }
                         key(emojiPageKeyboardView) {
                             AndroidView({ emojiPageKeyboardView }, modifier = Modifier.wrapContentHeight().fillMaxWidth())
+                        }
+                        Row(modifier = Modifier.fillMaxWidth().height(36.dp)
+                            .background(Color(colors.get(ColorType.FUNCTIONAL_KEY_BACKGROUND)))
+                            .horizontalScroll(rememberScrollState()),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            queuedEmojis.forEachIndexed { idx, emoji ->
+                                Text(text = emoji, fontSize = 22.sp,
+                                    modifier = Modifier.clickable { queuedEmojis.removeAt(idx) }.padding(horizontal = 4.dp))
+                            }
                         }
                         val focusRequester = remember { FocusRequester() }
                         var text by remember { mutableStateOf(TextFieldValue(searchText, selection = TextRange(searchText.length))) }
@@ -263,12 +277,13 @@ class EmojiSearchActivity : ComponentActivity() {
     override fun onStop() {
         val intent = Intent(this, LatinIME::class.java).setAction(EMOJI_SEARCH_DONE_ACTION)
             .putExtra(IME_CLOSED_KEY, imeClosed)
-        pressedKey?.let {
+        if (queuedEmojis.isNotEmpty()) {
+            intent.putExtra(EMOJI_KEY, queuedEmojis.joinToString(""))
+        } else pressedKey?.let {
             intent.putExtra(EMOJI_KEY, if (it.code == KeyCode.MULTIPLE_CODE_POINTS)
                 it.getOutputText()
             else
                 Character.toString(it.code))
-
             KeyboardSwitcher.getInstance().emojiPalettesView.addRecentKey(it)
         }
         startService(intent)
@@ -307,8 +322,10 @@ class EmojiSearchActivity : ComponentActivity() {
             }
 
             override fun onReleaseKey(key: Key) {
-                pressedKey = key
-                finish()
+                val emoji = if (key.code == KeyCode.MULTIPLE_CODE_POINTS) key.getOutputText().orEmpty()
+                            else Character.toString(key.code)
+                if (emoji.isNotEmpty()) queuedEmojis.add(emoji)
+                KeyboardSwitcher.getInstance().emojiPalettesView.addRecentKey(key)
             }
 
             override fun getDescription(emoji: String): String? = if (Settings.getValues().mShowEmojiDescriptions)
